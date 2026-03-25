@@ -2,7 +2,7 @@
 
 Merge the following branches into the current branch:
 
-BRANCHES
+{{BRANCHES}}
 
 For each branch:
 
