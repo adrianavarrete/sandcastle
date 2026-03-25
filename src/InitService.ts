@@ -10,6 +10,29 @@ logs/
 worktrees/
 `;
 
+export interface TemplateMetadata {
+  name: string;
+  description: string;
+}
+
+const TEMPLATES: TemplateMetadata[] = [
+  {
+    name: "blank",
+    description: "Bare scaffold — write your own prompt and orchestration",
+  },
+  {
+    name: "simple-loop",
+    description: "Picks GitHub issues one by one and closes them",
+  },
+  {
+    name: "parallel-planner",
+    description:
+      "Plans parallelizable issues, executes on separate branches, merges",
+  },
+];
+
+export const listTemplates = (): TemplateMetadata[] => TEMPLATES;
+
 function buildEnvExample(envManifest: Record<string, string>): string {
   return (
     Object.entries(envManifest)
@@ -25,21 +48,16 @@ function getTemplatesDir(): string {
 
 const getTemplateDir = (
   templateName: string,
-): Effect.Effect<string, Error, FileSystem.FileSystem> =>
+): Effect.Effect<string, Error, never> =>
   Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const templateDir = join(getTemplatesDir(), templateName);
-    yield* fs
-      .readFileString(join(templateDir, "template.json"))
-      .pipe(
-        Effect.mapError(
-          () =>
-            new Error(
-              `Unknown template: "${templateName}". Check available templates in src/templates/.`,
-            ),
-        ),
+    const template = TEMPLATES.find((t) => t.name === templateName);
+    if (!template) {
+      const names = TEMPLATES.map((t) => t.name).join(", ");
+      yield* Effect.fail(
+        new Error(`Unknown template: "${templateName}". Available: ${names}`),
       );
-    return templateDir;
+    }
+    return join(getTemplatesDir(), templateName);
   });
 
 const copyTemplateFiles = (

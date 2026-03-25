@@ -8,7 +8,7 @@ import { readConfig } from "./Config.js";
 import { Display } from "./Display.js";
 import { DEFAULT_MODEL } from "./Orchestrator.js";
 import { buildImage, removeImage } from "./DockerLifecycle.js";
-import { scaffold } from "./InitService.js";
+import { scaffold, listTemplates } from "./InitService.js";
 import { defaultImageName, run } from "./run.js";
 import { getAgentProvider } from "./AgentProvider.js";
 import { AgentError, ConfigDirError, InitError } from "./errors.js";
@@ -64,13 +64,21 @@ const requireConfigDir = (
 
 // --- Init command ---
 
+const templateOption = Options.text("template").pipe(
+  Options.withDescription(
+    "Template to scaffold (e.g. blank, simple-loop, parallel-planner)",
+  ),
+  Options.optional,
+);
+
 const initCommand = Command.make(
   "init",
   {
     imageName: imageNameOption,
     agent: agentOption,
+    template: templateOption,
   },
-  ({ imageName: imageNameFlag, agent }) =>
+  ({ imageName: imageNameFlag, agent, template }) =>
     Effect.gen(function* () {
       const d = yield* Display;
       const cwd = process.cwd();
@@ -86,9 +94,44 @@ const initCommand = Command.make(
           }),
       });
 
+      // Resolve template: CLI flag > interactive select
+      const templates = listTemplates();
+      let selectedTemplate: string;
+      if (template._tag === "Some") {
+        const t = template.value;
+        const valid = templates.find((tmpl) => tmpl.name === t);
+        if (!valid) {
+          const names = templates.map((tmpl) => tmpl.name).join(", ");
+          yield* Effect.fail(
+            new InitError({
+              message: `Unknown template "${t}". Available: ${names}`,
+            }),
+          );
+        }
+        selectedTemplate = t;
+      } else {
+        const selected = yield* Effect.promise(() =>
+          clack.select({
+            message: "Select a template:",
+            initialValue: "blank",
+            options: templates.map((tmpl) => ({
+              value: tmpl.name,
+              label: tmpl.name,
+              hint: tmpl.description,
+            })),
+          }),
+        );
+        if (clack.isCancel(selected)) {
+          yield* Effect.fail(
+            new InitError({ message: "Template selection cancelled." }),
+          );
+        }
+        selectedTemplate = selected as string;
+      }
+
       yield* d.spinner(
         "Scaffolding .sandcastle/ config directory...",
-        scaffold(cwd, provider).pipe(
+        scaffold(cwd, provider, selectedTemplate).pipe(
           Effect.mapError(
             (e) =>
               new InitError({
@@ -117,6 +160,23 @@ const initCommand = Command.make(
         yield* d.status(
           "Init complete! Run `sandcastle build-image` to build the Docker image later.",
           "success",
+        );
+      }
+
+      // Show template-specific next steps
+      if (selectedTemplate === "blank") {
+        yield* d.status(
+          "Next steps: fill in .sandcastle/.env, then run `npx sandcastle run` to start the agent.",
+          "info",
+        );
+      } else {
+        yield* d.status(
+          'Next steps: fill in .sandcastle/.env, add `"sandcastle": "npx tsx .sandcastle/main.ts"` to your package.json scripts, then run `npm run sandcastle`.',
+          "info",
+        );
+        yield* d.status(
+          "The default onSandboxReady hook runs `npm install` in the sandbox before each iteration.",
+          "info",
         );
       }
     }),

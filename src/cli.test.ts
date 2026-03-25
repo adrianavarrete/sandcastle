@@ -96,4 +96,25 @@ describe("sandcastle CLI", () => {
       expect(output).toContain("No .sandcastle/ found");
     }
   });
+
+  it("init --help shows --template flag", async () => {
+    const { stdout } = await runCli("init --help", process.cwd());
+    expect(stdout).toContain("--template");
+  });
+
+  it("init --template nonexistent produces error listing available templates", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "cli-host-"));
+    await initRepo(hostDir);
+
+    try {
+      await runCli("init --template nonexistent", hostDir);
+      expect.fail("Expected command to fail");
+    } catch (err: unknown) {
+      const { stdout, stderr } = err as { stdout: string; stderr: string };
+      const output = stdout + stderr;
+      expect(output).toContain("nonexistent");
+      expect(output).toContain("blank");
+      expect(output).toContain("simple-loop");
+    }
+  });
 });
