@@ -218,4 +218,94 @@ describe("InitService scaffold", () => {
     );
     expect(configJson).toEqual({ agent: "fake-agent" });
   });
+
+  describe("parallel-planner template", () => {
+    it("produces main.ts, plan-prompt.md, implement-prompt.md, merge-prompt.md", async () => {
+      const dir = await makeDir();
+      await scaffold(dir, fakeProvider, "parallel-planner");
+
+      const configDir = join(dir, ".sandcastle");
+      const { access } = await import("node:fs/promises");
+
+      await expect(access(join(configDir, "main.ts"))).resolves.toBeUndefined();
+      await expect(
+        access(join(configDir, "plan-prompt.md")),
+      ).resolves.toBeUndefined();
+      await expect(
+        access(join(configDir, "implement-prompt.md")),
+      ).resolves.toBeUndefined();
+      await expect(
+        access(join(configDir, "merge-prompt.md")),
+      ).resolves.toBeUndefined();
+    });
+
+    it("main.ts uses npm install hook and imports sandcastle", async () => {
+      const dir = await makeDir();
+      await scaffold(dir, fakeProvider, "parallel-planner");
+
+      const mainTs = await readFile(
+        join(dir, ".sandcastle", "main.ts"),
+        "utf-8",
+      );
+      expect(mainTs).toContain("npm install");
+      expect(mainTs).toContain("sandcastle");
+    });
+
+    it("main.ts references opus for planning and sonnet for execution/merge", async () => {
+      const dir = await makeDir();
+      await scaffold(dir, fakeProvider, "parallel-planner");
+
+      const mainTs = await readFile(
+        join(dir, ".sandcastle", "main.ts"),
+        "utf-8",
+      );
+      expect(mainTs).toContain("claude-opus-4-6");
+      expect(mainTs).toContain("claude-sonnet-4-6");
+    });
+
+    it("implement-prompt.md contains {{ISSUE_NUMBER}}, {{ISSUE_TITLE}}, {{BRANCH}} prompt arguments", async () => {
+      const dir = await makeDir();
+      await scaffold(dir, fakeProvider, "parallel-planner");
+
+      const prompt = await readFile(
+        join(dir, ".sandcastle", "implement-prompt.md"),
+        "utf-8",
+      );
+      expect(prompt).toContain("{{ISSUE_NUMBER}}");
+      expect(prompt).toContain("{{ISSUE_TITLE}}");
+      expect(prompt).toContain("{{BRANCH}}");
+    });
+
+    it("merge-prompt.md contains {{BRANCHES}} and {{ISSUES}} prompt arguments", async () => {
+      const dir = await makeDir();
+      await scaffold(dir, fakeProvider, "parallel-planner");
+
+      const prompt = await readFile(
+        join(dir, ".sandcastle", "merge-prompt.md"),
+        "utf-8",
+      );
+      expect(prompt).toContain("{{BRANCHES}}");
+      expect(prompt).toContain("{{ISSUES}}");
+    });
+
+    it("common files are still generated with parallel-planner template", async () => {
+      const dir = await makeDir();
+      await scaffold(dir, fakeProvider, "parallel-planner");
+
+      const configDir = join(dir, ".sandcastle");
+      const dockerfile = await readFile(join(configDir, "Dockerfile"), "utf-8");
+      expect(dockerfile).toBe(fakeProvider.dockerfileTemplate);
+
+      const envExample = await readFile(
+        join(configDir, ".env.example"),
+        "utf-8",
+      );
+      expect(envExample).toContain("FAKE_TOKEN=");
+
+      const configJson = JSON.parse(
+        await readFile(join(configDir, "config.json"), "utf-8"),
+      );
+      expect(configJson).toEqual({ agent: "fake-agent" });
+    });
+  });
 });
