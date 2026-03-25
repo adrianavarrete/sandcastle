@@ -1,3 +1,5 @@
+import { NodeFileSystem } from "@effect/platform-node";
+import { Effect } from "effect";
 import { mkdir, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +11,11 @@ import { SANDBOX_WORKSPACE_DIR } from "./SandboxFactory.js";
 import { SKELETON_PROMPT } from "./templates.js";
 
 const makeDir = () => mkdtemp(join(tmpdir(), "init-service-"));
+
+const runScaffold = (...args: Parameters<typeof scaffold>) =>
+  Effect.runPromise(
+    scaffold(...args).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
 
 const fakeProvider: AgentProvider = {
   name: "fake-agent",
@@ -23,7 +30,7 @@ const fakeProvider: AgentProvider = {
 describe("InitService scaffold", () => {
   it("uses provider envManifest for .env.example", async () => {
     const dir = await makeDir();
-    await scaffold(dir, fakeProvider);
+    await runScaffold(dir, fakeProvider);
 
     const envExample = await readFile(
       join(dir, ".sandcastle", ".env.example"),
@@ -40,7 +47,7 @@ describe("InitService scaffold", () => {
 
   it("uses provider dockerfileTemplate for Dockerfile", async () => {
     const dir = await makeDir();
-    await scaffold(dir, fakeProvider);
+    await runScaffold(dir, fakeProvider);
 
     const dockerfile = await readFile(
       join(dir, ".sandcastle", "Dockerfile"),
@@ -51,7 +58,7 @@ describe("InitService scaffold", () => {
 
   it("writes agent name to config.json", async () => {
     const dir = await makeDir();
-    await scaffold(dir, fakeProvider);
+    await runScaffold(dir, fakeProvider);
 
     const configJson = await readFile(
       join(dir, ".sandcastle", "config.json"),
@@ -63,7 +70,7 @@ describe("InitService scaffold", () => {
 
   it("scaffolds claude-code provider correctly", async () => {
     const dir = await makeDir();
-    await scaffold(dir, claudeCodeProvider);
+    await runScaffold(dir, claudeCodeProvider);
 
     const configDir = join(dir, ".sandcastle");
 
@@ -82,14 +89,14 @@ describe("InitService scaffold", () => {
     const dir = await makeDir();
     await mkdir(join(dir, ".sandcastle"));
 
-    await expect(scaffold(dir, fakeProvider)).rejects.toThrow(
+    await expect(runScaffold(dir, fakeProvider)).rejects.toThrow(
       ".sandcastle/ directory already exists",
     );
   });
 
   it("includes patches/, logs/, and worktrees/ in .gitignore", async () => {
     const dir = await makeDir();
-    await scaffold(dir, fakeProvider);
+    await runScaffold(dir, fakeProvider);
 
     const gitignore = await readFile(
       join(dir, ".sandcastle", ".gitignore"),
@@ -102,7 +109,7 @@ describe("InitService scaffold", () => {
 
   it("Dockerfile template contains workspace mount comment", async () => {
     const dir = await makeDir();
-    await scaffold(dir, claudeCodeProvider);
+    await runScaffold(dir, claudeCodeProvider);
 
     const dockerfile = await readFile(
       join(dir, ".sandcastle", "Dockerfile"),
@@ -113,7 +120,7 @@ describe("InitService scaffold", () => {
 
   it("skeleton prompt contains section headers and hints", async () => {
     const dir = await makeDir();
-    await scaffold(dir, fakeProvider);
+    await runScaffold(dir, fakeProvider);
 
     const prompt = await readFile(
       join(dir, ".sandcastle", "prompt.md"),
@@ -126,7 +133,7 @@ describe("InitService scaffold", () => {
 
   it("blank template produces skeleton prompt and no main.ts", async () => {
     const dir = await makeDir();
-    await scaffold(dir, fakeProvider, "blank");
+    await runScaffold(dir, fakeProvider, "blank");
 
     const configDir = join(dir, ".sandcastle");
     const prompt = await readFile(join(configDir, "prompt.md"), "utf-8");
@@ -140,8 +147,8 @@ describe("InitService scaffold", () => {
   it("blank template produces identical output to default (no template arg)", async () => {
     const dir1 = await makeDir();
     const dir2 = await makeDir();
-    await scaffold(dir1, fakeProvider);
-    await scaffold(dir2, fakeProvider, "blank");
+    await runScaffold(dir1, fakeProvider);
+    await runScaffold(dir2, fakeProvider, "blank");
 
     const prompt1 = await readFile(
       join(dir1, ".sandcastle", "prompt.md"),
@@ -156,7 +163,7 @@ describe("InitService scaffold", () => {
 
   it("simple-loop template produces main.ts and prompt.md", async () => {
     const dir = await makeDir();
-    await scaffold(dir, fakeProvider, "simple-loop");
+    await runScaffold(dir, fakeProvider, "simple-loop");
 
     const configDir = join(dir, ".sandcastle");
     const { access } = await import("node:fs/promises");
@@ -168,7 +175,7 @@ describe("InitService scaffold", () => {
 
   it("simple-loop main.ts contains sandcastle.run() with expected options", async () => {
     const dir = await makeDir();
-    await scaffold(dir, fakeProvider, "simple-loop");
+    await runScaffold(dir, fakeProvider, "simple-loop");
 
     const mainTs = await readFile(join(dir, ".sandcastle", "main.ts"), "utf-8");
     expect(mainTs).toContain("run(");
@@ -182,7 +189,7 @@ describe("InitService scaffold", () => {
 
   it("simple-loop prompt.md contains shell expressions for issues and commit history", async () => {
     const dir = await makeDir();
-    await scaffold(dir, fakeProvider, "simple-loop");
+    await runScaffold(dir, fakeProvider, "simple-loop");
 
     const prompt = await readFile(
       join(dir, ".sandcastle", "prompt.md"),
@@ -197,14 +204,14 @@ describe("InitService scaffold", () => {
 
   it("unknown template name throws a clear error", async () => {
     const dir = await makeDir();
-    await expect(scaffold(dir, fakeProvider, "nonexistent")).rejects.toThrow(
+    await expect(runScaffold(dir, fakeProvider, "nonexistent")).rejects.toThrow(
       "nonexistent",
     );
   });
 
   it("common files are generated correctly regardless of template", async () => {
     const dir = await makeDir();
-    await scaffold(dir, fakeProvider, "blank");
+    await runScaffold(dir, fakeProvider, "blank");
 
     const configDir = join(dir, ".sandcastle");
     const dockerfile = await readFile(join(configDir, "Dockerfile"), "utf-8");
@@ -222,7 +229,7 @@ describe("InitService scaffold", () => {
   describe("parallel-planner template", () => {
     it("produces main.ts, plan-prompt.md, implement-prompt.md, merge-prompt.md", async () => {
       const dir = await makeDir();
-      await scaffold(dir, fakeProvider, "parallel-planner");
+      await runScaffold(dir, fakeProvider, "parallel-planner");
 
       const configDir = join(dir, ".sandcastle");
       const { access } = await import("node:fs/promises");
@@ -241,7 +248,7 @@ describe("InitService scaffold", () => {
 
     it("main.ts uses npm install hook and imports sandcastle", async () => {
       const dir = await makeDir();
-      await scaffold(dir, fakeProvider, "parallel-planner");
+      await runScaffold(dir, fakeProvider, "parallel-planner");
 
       const mainTs = await readFile(
         join(dir, ".sandcastle", "main.ts"),
@@ -253,7 +260,7 @@ describe("InitService scaffold", () => {
 
     it("main.ts references opus for planning and sonnet for execution/merge", async () => {
       const dir = await makeDir();
-      await scaffold(dir, fakeProvider, "parallel-planner");
+      await runScaffold(dir, fakeProvider, "parallel-planner");
 
       const mainTs = await readFile(
         join(dir, ".sandcastle", "main.ts"),
@@ -265,7 +272,7 @@ describe("InitService scaffold", () => {
 
     it("implement-prompt.md contains {{ISSUE_NUMBER}}, {{ISSUE_TITLE}}, {{BRANCH}} prompt arguments", async () => {
       const dir = await makeDir();
-      await scaffold(dir, fakeProvider, "parallel-planner");
+      await runScaffold(dir, fakeProvider, "parallel-planner");
 
       const prompt = await readFile(
         join(dir, ".sandcastle", "implement-prompt.md"),
@@ -278,7 +285,7 @@ describe("InitService scaffold", () => {
 
     it("merge-prompt.md contains {{BRANCHES}} and {{ISSUES}} prompt arguments", async () => {
       const dir = await makeDir();
-      await scaffold(dir, fakeProvider, "parallel-planner");
+      await runScaffold(dir, fakeProvider, "parallel-planner");
 
       const prompt = await readFile(
         join(dir, ".sandcastle", "merge-prompt.md"),
@@ -290,7 +297,7 @@ describe("InitService scaffold", () => {
 
     it("common files are still generated with parallel-planner template", async () => {
       const dir = await makeDir();
-      await scaffold(dir, fakeProvider, "parallel-planner");
+      await runScaffold(dir, fakeProvider, "parallel-planner");
 
       const configDir = join(dir, ".sandcastle");
       const dockerfile = await readFile(join(configDir, "Dockerfile"), "utf-8");

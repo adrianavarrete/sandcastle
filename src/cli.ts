@@ -80,13 +80,14 @@ const initCommand = Command.make(
 
       yield* d.spinner(
         "Scaffolding .sandcastle/ config directory...",
-        Effect.tryPromise({
-          try: () => scaffold(cwd, provider),
-          catch: (e) =>
-            new InitError({
-              message: `${e instanceof Error ? e.message : e}`,
-            }),
-        }),
+        scaffold(cwd, provider).pipe(
+          Effect.mapError(
+            (e) =>
+              new InitError({
+                message: `${e instanceof Error ? e.message : e}`,
+              }),
+          ),
+        ),
       );
 
       // Prompt user before building image
