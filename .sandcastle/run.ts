@@ -47,7 +47,6 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       const result = await sandcastle.run({
         name: "Implementer #" + issue.number,
         hooks,
-        maxIterations: 100,
         model: "claude-sonnet-4-6",
         promptFile: "./.sandcastle/implement-prompt.md",
         promptArgs: {
