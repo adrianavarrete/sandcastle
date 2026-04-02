@@ -177,6 +177,60 @@ export const pi = (model: string): AgentProvider => ({
 });
 
 // ---------------------------------------------------------------------------
+// Codex agent provider
+// ---------------------------------------------------------------------------
+
+const parseCodexStreamLine = (line: string): ParsedStreamEvent[] => {
+  if (!line.startsWith("{")) return [];
+  try {
+    const obj = JSON.parse(line);
+
+    // item.completed with agent_message → text + result
+    if (
+      obj.type === "item.completed" &&
+      obj.item?.type === "agent_message" &&
+      typeof obj.item.content === "string"
+    ) {
+      const text = obj.item.content;
+      return [
+        { type: "text", text },
+        { type: "result", result: text, usage: extractUsage(obj) },
+      ];
+    }
+
+    // item.started with command_execution → tool call
+    if (
+      obj.type === "item.started" &&
+      obj.item?.type === "command_execution" &&
+      typeof obj.item.command === "string"
+    ) {
+      return [{ type: "tool_call", name: "Bash", args: obj.item.command }];
+    }
+
+    // turn.completed → skip
+  } catch {
+    // Not valid JSON — skip
+  }
+  return [];
+};
+
+export const codex = (model: string): AgentProvider => ({
+  name: "codex",
+
+  buildPrintCommand(prompt: string): string {
+    return `codex --json --model ${shellEscape(model)} ${shellEscape(prompt)}`;
+  },
+
+  buildInteractiveArgs(_prompt: string): string[] {
+    return ["codex", "--model", model];
+  },
+
+  parseStreamLine(line: string): ParsedStreamEvent[] {
+    return parseCodexStreamLine(line);
+  },
+});
+
+// ---------------------------------------------------------------------------
 // Claude Code agent provider
 // ---------------------------------------------------------------------------
 

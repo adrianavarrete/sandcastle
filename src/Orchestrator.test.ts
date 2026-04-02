@@ -10,7 +10,12 @@ import { describe, expect, it } from "vitest";
 import { Display, type DisplayEntry, SilentDisplay } from "./Display.js";
 import { makeLocalSandboxLayer } from "./testSandbox.js";
 import { orchestrate } from "./Orchestrator.js";
-import { claudeCode, pi as piFactory, DEFAULT_MODEL } from "./AgentProvider.js";
+import {
+  claudeCode,
+  codex as codexFactory,
+  pi as piFactory,
+  DEFAULT_MODEL,
+} from "./AgentProvider.js";
 import { Sandbox } from "./SandboxFactory.js";
 import type { DockerError, SandboxError } from "./errors.js";
 import { TimeoutError } from "./errors.js";
@@ -2503,6 +2508,140 @@ describe("Orchestrator with pi provider", () => {
     const result = await Effect.runPromise(
       orchestrate({
         provider: piTestProvider,
+        hostRepoDir: hostDir,
+        sandboxRepoDir,
+        iterations: 5,
+        prompt: "do some work",
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+    );
+
+    expect(result.iterationsRun).toBe(1);
+    expect(result.completionSignal).toBe("<promise>COMPLETE</promise>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Codex provider integration tests
+// ---------------------------------------------------------------------------
+
+const codexTestProvider = codexFactory("gpt-5.4-mini");
+
+/** Format a mock agent result as Codex JSON stream lines */
+const toCodexStreamJson = (output: string): string => {
+  const lines: string[] = [];
+  lines.push(
+    JSON.stringify({
+      type: "item.completed",
+      item: { type: "agent_message", content: output },
+    }),
+  );
+  return lines.join("\n");
+};
+
+/**
+ * Create a mock sandbox layer that intercepts `codex` commands
+ * and runs a mock script instead.
+ */
+const makeMockCodexAgentLayer = (
+  sandboxDir: string,
+  mockAgentBehavior: (sandboxRepoDir: string) => Promise<string>,
+): Layer.Layer<Sandbox> => {
+  const fsLayer = makeLocalSandboxLayer(sandboxDir);
+
+  return Layer.succeed(Sandbox, {
+    exec: (command, options) => {
+      if (command.startsWith("codex ")) {
+        return Effect.gen(function* () {
+          const cwd = options?.cwd ?? sandboxDir;
+          const output = yield* Effect.promise(() => mockAgentBehavior(cwd));
+          return { stdout: output, stderr: "", exitCode: 0 };
+        });
+      }
+      return Effect.flatMap(Sandbox, (real) =>
+        real.exec(command, options),
+      ).pipe(Effect.provide(fsLayer));
+    },
+    execStreaming: (command, onStdoutLine, options) => {
+      if (command.startsWith("codex ")) {
+        return Effect.gen(function* () {
+          const cwd = options?.cwd ?? sandboxDir;
+          const output = yield* Effect.promise(() => mockAgentBehavior(cwd));
+          const streamOutput = toCodexStreamJson(output);
+          for (const line of streamOutput.split("\n")) {
+            onStdoutLine(line);
+          }
+          return { stdout: streamOutput, stderr: "", exitCode: 0 };
+        });
+      }
+      return Effect.flatMap(Sandbox, (real) =>
+        real.execStreaming(command, onStdoutLine, options),
+      ).pipe(Effect.provide(fsLayer));
+    },
+    copyIn: (hostPath, sandboxPath) =>
+      Effect.flatMap(Sandbox, (real) =>
+        real.copyIn(hostPath, sandboxPath),
+      ).pipe(Effect.provide(fsLayer)),
+    copyOut: (sandboxPath, hostPath) =>
+      Effect.flatMap(Sandbox, (real) =>
+        real.copyOut(sandboxPath, hostPath),
+      ).pipe(Effect.provide(fsLayer)),
+  });
+};
+
+describe("Orchestrator with codex provider", () => {
+  it("runs a single iteration with codex provider and produces a commit", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-codex-host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory(
+      hostDir,
+      (dir) =>
+        makeMockCodexAgentLayer(dir, async (repoDir) => {
+          await writeFile(join(repoDir, "codex-output.txt"), "codex was here");
+          await execAsync("git add -A", { cwd: repoDir });
+          await execAsync('git config user.email "agent@test.com"', {
+            cwd: repoDir,
+          });
+          await execAsync('git config user.name "Agent"', { cwd: repoDir });
+          await execAsync('git commit -m "RALPH: codex agent commit"', {
+            cwd: repoDir,
+          });
+          return "Done with iteration.";
+        }),
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        provider: codexTestProvider,
+        hostRepoDir: hostDir,
+        sandboxRepoDir,
+        iterations: 1,
+        prompt: "do some work",
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+    );
+
+    expect(result.iterationsRun).toBe(1);
+    const content = await readFile(join(hostDir, "codex-output.txt"), "utf-8");
+    expect(content).toBe("codex was here");
+  });
+
+  it("stops early on completion signal with codex provider", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-codex-host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory(
+      hostDir,
+      (dir) =>
+        makeMockCodexAgentLayer(dir, async () => {
+          return "All done. <promise>COMPLETE</promise>";
+        }),
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        provider: codexTestProvider,
         hostRepoDir: hostDir,
         sandboxRepoDir,
         iterations: 5,

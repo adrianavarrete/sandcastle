@@ -19,6 +19,7 @@ const makeDir = () => mkdtemp(join(tmpdir(), "init-service-"));
 
 const claudeCodeAgent = getAgent("claude-code")!;
 const piAgent = getAgent("pi")!;
+const codexAgent = getAgent("codex")!;
 
 const defaultOptions: ScaffoldOptions = {
   agent: claudeCodeAgent,
@@ -70,6 +71,21 @@ describe("Agent registry", () => {
     expect(agent!.dockerfileTemplate).toContain(
       "@mariozechner/pi-coding-agent",
     );
+  });
+
+  it("listAgents includes codex", () => {
+    const agents = listAgents();
+    expect(agents.some((a) => a.name === "codex")).toBe(true);
+  });
+
+  it("getAgent returns codex entry with expected fields", () => {
+    const agent = getAgent("codex");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("codex");
+    expect(agent!.defaultModel).toBe("gpt-5.4-mini");
+    expect(agent!.factoryImport).toBe("codex");
+    expect(agent!.dockerfileTemplate).toContain("FROM");
+    expect(agent!.dockerfileTemplate).toContain("@openai/codex");
   });
 });
 
@@ -478,6 +494,27 @@ describe("InitService scaffold", () => {
 
     const mainTs = await readFile(join(dir, ".sandcastle", "main.ts"), "utf-8");
     expect(mainTs).toContain('pi("claude-sonnet-4-6")');
+    expect(mainTs).not.toContain("claudeCode");
+  });
+
+  it("scaffolds codex agent with codex Dockerfile", async () => {
+    const dir = await makeDir();
+    await runScaffold(dir, { agent: codexAgent, model: "gpt-5.4-mini" });
+
+    const dockerfile = await readFile(
+      join(dir, ".sandcastle", "Dockerfile"),
+      "utf-8",
+    );
+    expect(dockerfile).toBe(codexAgent.dockerfileTemplate);
+    expect(dockerfile).toContain("@openai/codex");
+  });
+
+  it("scaffolds main.ts with codex factory import when codex agent selected", async () => {
+    const dir = await makeDir();
+    await runScaffold(dir, { agent: codexAgent, model: "gpt-5.4-mini" });
+
+    const mainTs = await readFile(join(dir, ".sandcastle", "main.ts"), "utf-8");
+    expect(mainTs).toContain('codex("gpt-5.4-mini")');
     expect(mainTs).not.toContain("claudeCode");
   });
 

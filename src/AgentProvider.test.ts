@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claudeCode, pi } from "./AgentProvider.js";
+import { claudeCode, codex, pi } from "./AgentProvider.js";
 
 describe("claudeCode factory", () => {
   it("returns a provider with name 'claude-code'", () => {
@@ -257,6 +257,140 @@ describe("pi factory", () => {
   it("bakes model into each provider instance independently", () => {
     const provider1 = pi("model-a");
     const provider2 = pi("model-b");
+    expect(provider1.buildPrintCommand("test")).toContain("model-a");
+    expect(provider2.buildPrintCommand("test")).toContain("model-b");
+    expect(provider1.buildPrintCommand("test")).not.toContain("model-b");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// codex factory
+// ---------------------------------------------------------------------------
+
+describe("codex factory", () => {
+  it("returns a provider with name 'codex'", () => {
+    const provider = codex("gpt-5.4-mini");
+    expect(provider.name).toBe("codex");
+  });
+
+  it("does not expose envManifest or dockerfileTemplate", () => {
+    const provider = codex("gpt-5.4-mini");
+    expect(provider).not.toHaveProperty("envManifest");
+    expect(provider).not.toHaveProperty("dockerfileTemplate");
+  });
+
+  it("buildPrintCommand includes the model and --json flag", () => {
+    const provider = codex("gpt-5.4-mini");
+    const command = provider.buildPrintCommand("do something");
+    expect(command).toContain("gpt-5.4-mini");
+    expect(command).toContain("--json");
+  });
+
+  it("buildPrintCommand shell-escapes the prompt", () => {
+    const provider = codex("gpt-5.4-mini");
+    const command = provider.buildPrintCommand("it's a test");
+    expect(command).toContain("'it'\\''s a test'");
+  });
+
+  it("buildPrintCommand shell-escapes the model", () => {
+    const provider = codex("gpt-5.4-mini");
+    const command = provider.buildPrintCommand("do something");
+    expect(command).toContain("--model 'gpt-5.4-mini'");
+  });
+
+  it("buildInteractiveArgs includes the binary and model", () => {
+    const provider = codex("gpt-5.4-mini");
+    const args = provider.buildInteractiveArgs("");
+    expect(args[0]).toBe("codex");
+    expect(args).toContain("gpt-5.4-mini");
+    expect(args).toContain("--model");
+  });
+
+  it("parseStreamLine extracts text and result from item.completed agent_message", () => {
+    const provider = codex("gpt-5.4-mini");
+    const line = JSON.stringify({
+      type: "item.completed",
+      item: { type: "agent_message", content: "Hello world" },
+    });
+    expect(provider.parseStreamLine(line)).toEqual([
+      { type: "text", text: "Hello world" },
+      { type: "result", result: "Hello world", usage: null },
+    ]);
+  });
+
+  it("parseStreamLine extracts tool call from item.started command_execution", () => {
+    const provider = codex("gpt-5.4-mini");
+    const line = JSON.stringify({
+      type: "item.started",
+      item: { type: "command_execution", command: "npm test" },
+    });
+    expect(provider.parseStreamLine(line)).toEqual([
+      { type: "tool_call", name: "Bash", args: "npm test" },
+    ]);
+  });
+
+  it("parseStreamLine skips turn.completed events", () => {
+    const provider = codex("gpt-5.4-mini");
+    const line = JSON.stringify({ type: "turn.completed" });
+    expect(provider.parseStreamLine(line)).toEqual([]);
+  });
+
+  it("parseStreamLine returns empty array for non-JSON lines", () => {
+    const provider = codex("gpt-5.4-mini");
+    expect(provider.parseStreamLine("not json")).toEqual([]);
+    expect(provider.parseStreamLine("")).toEqual([]);
+  });
+
+  it("parseStreamLine returns empty array for unrecognized event types", () => {
+    const provider = codex("gpt-5.4-mini");
+    const line = JSON.stringify({ type: "unknown_event", data: "foo" });
+    expect(provider.parseStreamLine(line)).toEqual([]);
+  });
+
+  it("parseStreamLine returns empty array for malformed JSON", () => {
+    const provider = codex("gpt-5.4-mini");
+    expect(provider.parseStreamLine("{bad json")).toEqual([]);
+  });
+
+  it("parseStreamLine handles item.completed with missing content", () => {
+    const provider = codex("gpt-5.4-mini");
+    const line = JSON.stringify({
+      type: "item.completed",
+      item: { type: "agent_message" },
+    });
+    expect(provider.parseStreamLine(line)).toEqual([]);
+  });
+
+  it("parseStreamLine handles item.started with missing command", () => {
+    const provider = codex("gpt-5.4-mini");
+    const line = JSON.stringify({
+      type: "item.started",
+      item: { type: "command_execution" },
+    });
+    expect(provider.parseStreamLine(line)).toEqual([]);
+  });
+
+  it("parseStreamLine handles item.completed with non-agent_message type", () => {
+    const provider = codex("gpt-5.4-mini");
+    const line = JSON.stringify({
+      type: "item.completed",
+      item: { type: "other_type", content: "foo" },
+    });
+    expect(provider.parseStreamLine(line)).toEqual([]);
+  });
+
+  it("parseStreamLine handles item.started with non-command_execution type", () => {
+    const provider = codex("gpt-5.4-mini");
+    const line = JSON.stringify({
+      type: "item.started",
+      item: { type: "other_type", command: "foo" },
+    });
+    expect(provider.parseStreamLine(line)).toEqual([]);
+  });
+
+  it("bakes model into each provider instance independently", () => {
+    const provider1 = codex("model-a");
+    const provider2 = codex("model-b");
     expect(provider1.buildPrintCommand("test")).toContain("model-a");
     expect(provider2.buildPrintCommand("test")).toContain("model-b");
     expect(provider1.buildPrintCommand("test")).not.toContain("model-b");
