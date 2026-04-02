@@ -2205,19 +2205,8 @@ describe("Orchestrator Display integration", () => {
     await initRepo(hostDir);
     await commitFile(hostDir, "hello.txt", "hello", "initial commit");
 
-    // Mock agent: stays idle for 250ms (producing no output), then completes.
-    // We'll set IDLE_WARNING_INTERVAL_MS-equivalent behavior by using a very short
-    // idle timeout so warnings fire quickly. The warning interval is hardcoded at 60s
-    // in production, but we need to test the mechanism. We'll use a custom sandbox
-    // that delays output long enough for the warning interval to fire.
-    //
-    // Since the warning interval is hardcoded at 60_000ms, we can't easily test
-    // real timing. Instead we use a mock sandbox that delays 250ms with no output,
-    // and set idleTimeoutSeconds high enough not to kill. We'll verify the wiring
-    // by checking that the onIdleWarning callback fires (via display entries).
-    //
-    // To make this testable without waiting 60s, we'll override the interval
-    // via the _idleWarningIntervalMs test-only option.
+    // Agent stays idle for 250ms with _idleWarningIntervalMs=100ms,
+    // so ~2 warnings should fire before the agent completes.
     const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory(
       hostDir,
       (dir) => {
@@ -2276,7 +2265,6 @@ describe("Orchestrator Display integration", () => {
 
     expect(exitResult._tag).toBe("Success");
 
-    const entries = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
     const allEntries = await Effect.runPromise(Ref.get(displayEntries));
     const warningEntries = allEntries.filter(
       (e) => e._tag === "status" && e.severity === "warn",
