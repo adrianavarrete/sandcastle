@@ -1,0 +1,4 @@
+{
+  "name": "simple-loop-local",
+  "description": "Picks local JSON tasks one by one and marks them done (no GitHub needed)"
+}

@@ -24,6 +24,11 @@ const TEMPLATES: TemplateMetadata[] = [
     description: "Picks GitHub issues one by one and closes them",
   },
   {
+    name: "simple-loop-local",
+    description:
+      "Picks local JSON tasks one by one and marks them done (no GitHub needed)",
+  },
+  {
     name: "sequential-reviewer",
     description:
       "Implements issues one by one, with a code review step after each",
@@ -352,4 +357,28 @@ export const scaffold = (
 
     // Rewrite main.ts with the selected agent factory and model
     yield* rewriteMainTs(configDir, agent, model);
+
+    // Local-tasks templates: scaffold .sandcastle/tasks/ with an example task
+    if (templateName.endsWith("-local")) {
+      const tasksDir = join(configDir, "tasks");
+      yield* fs
+        .makeDirectory(tasksDir, { recursive: false })
+        .pipe(Effect.mapError((e) => new Error(e.message)));
+      yield* fs
+        .writeFileString(
+          join(tasksDir, "1-example-task.json"),
+          JSON.stringify(
+            {
+              id: 1,
+              title: "Example task",
+              status: "open",
+              depends_on: [],
+              body: "Replace this with a real task. Describe what the agent should implement, fix, or change.",
+            },
+            null,
+            2,
+          ) + "\n",
+        )
+        .pipe(Effect.mapError((e) => new Error(e.message)));
+    }
   });

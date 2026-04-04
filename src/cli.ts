@@ -183,23 +183,26 @@ const initCommand = Command.make(
       }
 
       // Offer to create the "Sandcastle" label on the repo
-      const shouldCreateLabel = yield* Effect.promise(() =>
-        clack.confirm({
-          message:
-            'Create a "Sandcastle" GitHub label? (Templates filter issues by this label)',
-          initialValue: true,
-        }),
-      );
+      // (skip for local-tasks templates — they don't use GitHub issues)
+      if (!selectedTemplate.endsWith("-local")) {
+        const shouldCreateLabel = yield* Effect.promise(() =>
+          clack.confirm({
+            message:
+              'Create a "Sandcastle" GitHub label? (Templates filter issues by this label)',
+            initialValue: true,
+          }),
+        );
 
-      if (shouldCreateLabel === true) {
-        yield* Effect.try({
-          try: () =>
-            execSync(
-              'gh label create "Sandcastle" --description "Issues for Sandcastle to work on" --color "F9A825" 2>/dev/null',
-              { cwd, stdio: "ignore" },
-            ),
-          catch: () => undefined,
-        }).pipe(Effect.ignore);
+        if (shouldCreateLabel === true) {
+          yield* Effect.try({
+            try: () =>
+              execSync(
+                'gh label create "Sandcastle" --description "Issues for Sandcastle to work on" --color "F9A825" 2>/dev/null',
+                { cwd, stdio: "ignore" },
+              ),
+            catch: () => undefined,
+          }).pipe(Effect.ignore);
+        }
       }
 
       yield* d.spinner(
