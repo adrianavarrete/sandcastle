@@ -223,9 +223,6 @@ export interface CodexOptions {
 
 export const codex = (model: string, options?: CodexOptions): AgentProvider => {
   const isChatGPT = options?.provider === "chatgpt";
-  const configFlag = isChatGPT
-    ? `-c model_provider=${shellEscape("chatgpt")} `
-    : "";
 
   return {
     name: "codex",
@@ -235,13 +232,11 @@ export const codex = (model: string, options?: CodexOptions): AgentProvider => {
       : undefined,
 
     buildPrintCommand(prompt: string): string {
-      return `codex exec ${configFlag}--json --dangerously-bypass-approvals-and-sandbox -m ${shellEscape(model)} ${shellEscape(prompt)}`;
+      return `codex exec --json --dangerously-bypass-approvals-and-sandbox -m ${shellEscape(model)} ${shellEscape(prompt)}`;
     },
 
     buildInteractiveArgs(_prompt: string): string[] {
-      return isChatGPT
-        ? ["codex", "-c", "model_provider=chatgpt", "--model", model]
-        : ["codex", "--model", model];
+      return ["codex", "--model", model];
     },
 
     parseStreamLine(line: string): ParsedStreamEvent[] {

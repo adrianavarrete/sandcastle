@@ -117,13 +117,31 @@ export const startContainer = (
  * Fix ownership of a directory inside the container.
  * Runs as root so the target owner can write to the path.
  * @param owner - chown-compatible owner spec, e.g. "1000:1000" or "agent"
+ * @param excludePaths - paths to skip (e.g. bind-mounted dirs that can't be chowned)
  */
 export const chownInContainer = (
   containerName: string,
   owner: string,
   path: string,
-): Effect.Effect<void, DockerError> =>
-  Effect.asVoid(
+  excludePaths?: readonly string[],
+): Effect.Effect<void, DockerError> => {
+  if (excludePaths && excludePaths.length > 0) {
+    const pruneArgs = excludePaths
+      .flatMap((p) => ["-path", p, "-prune", "-o"])
+      .join(" ");
+    return Effect.asVoid(
+      dockerExec([
+        "exec",
+        "-u",
+        "root",
+        containerName,
+        "sh",
+        "-c",
+        `find ${path} ${pruneArgs} -exec chown ${owner} {} +`,
+      ]),
+    );
+  }
+  return Effect.asVoid(
     dockerExec([
       "exec",
       "-u",
@@ -135,6 +153,7 @@ export const chownInContainer = (
       path,
     ]),
   );
+};
 
 /**
  * Stop and remove a container without removing the image.

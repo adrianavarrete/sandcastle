@@ -438,10 +438,11 @@ describe("codex factory with { provider: 'chatgpt' }", () => {
     ]);
   });
 
-  it("buildPrintCommand includes -c model_provider flag", () => {
+  it("buildPrintCommand does not include -c model_provider flag", () => {
     const provider = codex("gpt-5.4-mini", { provider: "chatgpt" });
     const command = provider.buildPrintCommand("do something");
-    expect(command).toContain("-c model_provider='chatgpt'");
+    expect(command).not.toContain("-c");
+    expect(command).not.toContain("model_provider");
     expect(command).toContain("--json");
     expect(command).toContain("-m 'gpt-5.4-mini'");
   });
@@ -452,12 +453,12 @@ describe("codex factory with { provider: 'chatgpt' }", () => {
     expect(command).toContain("'it'\\''s a test'");
   });
 
-  it("buildInteractiveArgs includes -c model_provider flag", () => {
+  it("buildInteractiveArgs does not include -c model_provider flag", () => {
     const provider = codex("gpt-5.4-mini", { provider: "chatgpt" });
     const args = provider.buildInteractiveArgs("");
     expect(args[0]).toBe("codex");
-    expect(args).toContain("-c");
-    expect(args).toContain("model_provider=chatgpt");
+    expect(args).not.toContain("-c");
+    expect(args).not.toContain("model_provider=chatgpt");
     expect(args).toContain("--model");
     expect(args).toContain("gpt-5.4-mini");
   });

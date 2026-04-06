@@ -518,8 +518,7 @@ Or configure it manually by passing `{ provider: "chatgpt" }` to the `codex()` f
 
 When `provider: "chatgpt"` is set:
 
-- Sandcastle mounts `~/.codex/` from the host into the container at `/home/agent/.codex/`, so the Codex CLI inside the sandbox can use your credentials.
-- The CLI is invoked with `-c model_provider="chatgpt"` to route requests through your ChatGPT subscription.
+- Sandcastle mounts `~/.codex/` from the host into the container at `/home/agent/.codex/`, so the Codex CLI inside the sandbox can use your file-based credentials automatically.
 - No `OPENAI_API_KEY` environment variable is needed.
 
 If `~/.codex/auth.json` is missing on the host, Sandcastle fails immediately with an error asking you to run `codex login`.

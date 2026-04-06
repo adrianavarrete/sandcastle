@@ -194,6 +194,9 @@ export const createSandbox = async (
             containerName,
             `${hostUid}:${hostGid}`,
             "/home/agent",
+            options.hostMounts
+              ?.map((m) => m.split(":")[1])
+              .filter((p): p is string => !!p),
           ),
         ),
       ),

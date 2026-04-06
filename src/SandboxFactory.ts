@@ -312,6 +312,7 @@ const startSandboxContainer = (
   imageName: string,
   env: Record<string, string>,
   volumeMounts: string[],
+  hostMounts?: readonly string[],
 ) => {
   const cleanupContainerOnly = () => {
     forceRemoveContainerSync(containerName);
@@ -335,7 +336,12 @@ const startSandboxContainer = (
     },
   ).pipe(
     Effect.andThen(
-      chownInContainer(containerName, `${hostUid}:${hostGid}`, "/home/agent"),
+      chownInContainer(
+        containerName,
+        `${hostUid}:${hostGid}`,
+        "/home/agent",
+        hostMounts?.map((m) => m.split(":")[1]).filter((p): p is string => !!p),
+      ),
     ),
     Effect.tap(() =>
       Effect.sync(() => {
@@ -454,6 +460,7 @@ export const WorktreeDockerSandboxFactory = {
                     imageName,
                     env,
                     volumeMounts,
+                    hostMounts,
                   ),
                   // Use
                   () =>
@@ -544,6 +551,7 @@ export const WorktreeDockerSandboxFactory = {
                         imageName,
                         env,
                         volumeMounts,
+                        hostMounts,
                       ).pipe(
                         Effect.tap(({ cleanupContainerOnly, onSignal }) =>
                           Effect.sync(() => {
