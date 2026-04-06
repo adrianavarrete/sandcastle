@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { claudeCode, codex, pi } from "./AgentProvider.js";
 
@@ -394,5 +395,98 @@ describe("codex factory", () => {
     expect(provider1.buildPrintCommand("test")).toContain("model-a");
     expect(provider2.buildPrintCommand("test")).toContain("model-b");
     expect(provider1.buildPrintCommand("test")).not.toContain("model-b");
+  });
+
+  it("has no hostMounts without options", () => {
+    const provider = codex("gpt-5.4-mini");
+    expect(provider.hostMounts).toBeUndefined();
+  });
+
+  it("has no hostMounts with empty options", () => {
+    const provider = codex("gpt-5.4-mini", {});
+    expect(provider.hostMounts).toBeUndefined();
+  });
+
+  it("buildPrintCommand does not include -c flag without options", () => {
+    const provider = codex("gpt-5.4-mini");
+    const command = provider.buildPrintCommand("do something");
+    expect(command).not.toContain("-c");
+    expect(command).not.toContain("model_provider");
+  });
+
+  it("buildInteractiveArgs does not include -c flag without options", () => {
+    const provider = codex("gpt-5.4-mini");
+    const args = provider.buildInteractiveArgs("");
+    expect(args).not.toContain("-c");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// codex factory with ChatGPT provider
+// ---------------------------------------------------------------------------
+
+describe("codex factory with { provider: 'chatgpt' }", () => {
+  it("returns a provider with name 'codex'", () => {
+    const provider = codex("gpt-5.4-mini", { provider: "chatgpt" });
+    expect(provider.name).toBe("codex");
+  });
+
+  it("populates hostMounts with ~/.codex mount", () => {
+    const provider = codex("gpt-5.4-mini", { provider: "chatgpt" });
+    expect(provider.hostMounts).toEqual([
+      `${homedir()}/.codex:/home/agent/.codex:ro`,
+    ]);
+  });
+
+  it("buildPrintCommand includes -c model_provider flag", () => {
+    const provider = codex("gpt-5.4-mini", { provider: "chatgpt" });
+    const command = provider.buildPrintCommand("do something");
+    expect(command).toContain("-c model_provider='chatgpt'");
+    expect(command).toContain("--json");
+    expect(command).toContain("-m 'gpt-5.4-mini'");
+  });
+
+  it("buildPrintCommand shell-escapes the prompt", () => {
+    const provider = codex("gpt-5.4-mini", { provider: "chatgpt" });
+    const command = provider.buildPrintCommand("it's a test");
+    expect(command).toContain("'it'\\''s a test'");
+  });
+
+  it("buildInteractiveArgs includes -c model_provider flag", () => {
+    const provider = codex("gpt-5.4-mini", { provider: "chatgpt" });
+    const args = provider.buildInteractiveArgs("");
+    expect(args[0]).toBe("codex");
+    expect(args).toContain("-c");
+    expect(args).toContain("model_provider=chatgpt");
+    expect(args).toContain("--model");
+    expect(args).toContain("gpt-5.4-mini");
+  });
+
+  it("parseStreamLine still works for ChatGPT-configured provider", () => {
+    const provider = codex("gpt-5.4-mini", { provider: "chatgpt" });
+    const line = JSON.stringify({
+      type: "item.completed",
+      item: { type: "agent_message", content: "Hello world" },
+    });
+    expect(provider.parseStreamLine(line)).toEqual([
+      { type: "text", text: "Hello world" },
+      { type: "result", result: "Hello world", usage: null },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hostMounts across providers
+// ---------------------------------------------------------------------------
+
+describe("hostMounts across providers", () => {
+  it("claudeCode has no hostMounts", () => {
+    const provider = claudeCode("claude-opus-4-6");
+    expect(provider.hostMounts).toBeUndefined();
+  });
+
+  it("pi has no hostMounts", () => {
+    const provider = pi("claude-sonnet-4-6");
+    expect(provider.hostMounts).toBeUndefined();
   });
 });

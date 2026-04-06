@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+
 export interface TokenUsage {
   readonly input_tokens: number;
   readonly output_tokens: number;
@@ -101,6 +103,7 @@ const parseStreamJsonLine = (line: string): ParsedStreamEvent[] => {
 
 export interface AgentProvider {
   readonly name: string;
+  readonly hostMounts?: readonly string[];
   buildPrintCommand(prompt: string): string;
   buildInteractiveArgs(prompt: string): string[];
   parseStreamLine(line: string): ParsedStreamEvent[];
@@ -214,21 +217,38 @@ const parseCodexStreamLine = (line: string): ParsedStreamEvent[] => {
   return [];
 };
 
-export const codex = (model: string): AgentProvider => ({
-  name: "codex",
+export interface CodexOptions {
+  readonly provider?: "chatgpt";
+}
 
-  buildPrintCommand(prompt: string): string {
-    return `codex exec --json --dangerously-bypass-approvals-and-sandbox -m ${shellEscape(model)} ${shellEscape(prompt)}`;
-  },
+export const codex = (model: string, options?: CodexOptions): AgentProvider => {
+  const isChatGPT = options?.provider === "chatgpt";
+  const configFlag = isChatGPT
+    ? `-c model_provider=${shellEscape("chatgpt")} `
+    : "";
 
-  buildInteractiveArgs(_prompt: string): string[] {
-    return ["codex", "--model", model];
-  },
+  return {
+    name: "codex",
 
-  parseStreamLine(line: string): ParsedStreamEvent[] {
-    return parseCodexStreamLine(line);
-  },
-});
+    hostMounts: isChatGPT
+      ? [`${homedir()}/.codex:/home/agent/.codex:ro`]
+      : undefined,
+
+    buildPrintCommand(prompt: string): string {
+      return `codex exec ${configFlag}--json --dangerously-bypass-approvals-and-sandbox -m ${shellEscape(model)} ${shellEscape(prompt)}`;
+    },
+
+    buildInteractiveArgs(_prompt: string): string[] {
+      return isChatGPT
+        ? ["codex", "-c", "model_provider=chatgpt", "--model", model]
+        : ["codex", "--model", model];
+    },
+
+    parseStreamLine(line: string): ParsedStreamEvent[] {
+      return parseCodexStreamLine(line);
+    },
+  };
+};
 
 // ---------------------------------------------------------------------------
 // Claude Code agent provider
