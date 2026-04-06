@@ -664,7 +664,7 @@ describe("WorktreeDockerSandboxFactory", () => {
 
     it("includes hostMounts in volume flags in worktree mode", async () => {
       const layer = makeLayerWithHostMounts([
-        "/home/user/.codex:/home/agent/.codex:ro",
+        "/home/user/.codex:/home/agent/.codex",
       ]);
 
       await Effect.runPromise(
@@ -675,12 +675,12 @@ describe("WorktreeDockerSandboxFactory", () => {
       );
 
       const runArgs = capturedArgs().find((args) => args[0] === "run");
-      expect(runArgs).toContain("/home/user/.codex:/home/agent/.codex:ro");
+      expect(runArgs).toContain("/home/user/.codex:/home/agent/.codex");
     });
 
     it("includes hostMounts in volume flags in none mode", async () => {
       const layer = makeLayerWithHostMounts(
-        ["/home/user/.codex:/home/agent/.codex:ro"],
+        ["/home/user/.codex:/home/agent/.codex"],
         { mode: "none" },
       );
 
@@ -692,7 +692,7 @@ describe("WorktreeDockerSandboxFactory", () => {
       );
 
       const runArgs = capturedArgs().find((args) => args[0] === "run");
-      expect(runArgs).toContain("/home/user/.codex:/home/agent/.codex:ro");
+      expect(runArgs).toContain("/home/user/.codex:/home/agent/.codex");
     });
 
     it("does not add extra mounts when hostMounts is undefined", async () => {

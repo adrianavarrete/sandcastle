@@ -141,6 +141,37 @@ const initCommand = Command.make(
         selectedAgent = getAgent(selected as string)!;
       }
 
+      // If Codex agent, ask about auth type
+      let codexProvider: "chatgpt" | undefined;
+      if (selectedAgent.name === "codex") {
+        const authType = yield* Effect.promise(() =>
+          clack.select({
+            message: "How do you want to authenticate with Codex?",
+            initialValue: "api-key",
+            options: [
+              {
+                value: "api-key",
+                label: "API key",
+                hint: "Set OPENAI_API_KEY in .env",
+              },
+              {
+                value: "chatgpt",
+                label: "ChatGPT subscription",
+                hint: "Uses `codex login` file-based auth",
+              },
+            ],
+          }),
+        );
+        if (clack.isCancel(authType)) {
+          yield* Effect.fail(
+            new InitError({ message: "Auth type selection cancelled." }),
+          );
+        }
+        if (authType === "chatgpt") {
+          codexProvider = "chatgpt";
+        }
+      }
+
       // Resolve model: CLI flag > agent default
       const selectedModel =
         modelFlag._tag === "Some"
@@ -208,6 +239,7 @@ const initCommand = Command.make(
           agent: selectedAgent,
           model: selectedModel,
           templateName: selectedTemplate,
+          codexProvider,
         }).pipe(
           Effect.mapError(
             (e) =>

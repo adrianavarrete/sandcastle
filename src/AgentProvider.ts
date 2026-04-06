@@ -231,7 +231,7 @@ export const codex = (model: string, options?: CodexOptions): AgentProvider => {
     name: "codex",
 
     hostMounts: isChatGPT
-      ? [`${homedir()}/.codex:/home/agent/.codex:ro`]
+      ? [`${homedir()}/.codex:/home/agent/.codex`]
       : undefined,
 
     buildPrintCommand(prompt: string): string {

@@ -415,21 +415,21 @@ Removes the Docker image.
 
 ### `RunOptions`
 
-| Option               | Type               | Default                       | Description                                                                                                             |
-| -------------------- | ------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `agent`              | AgentProvider      | —                             | **Required.** Agent provider (e.g. `claudeCode("claude-opus-4-6")`, `pi("claude-sonnet-4-6")`, `codex("gpt-5.4-mini")`) |
-| `prompt`             | string             | —                             | Inline prompt (mutually exclusive with `promptFile`)                                                                    |
-| `promptFile`         | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)                                                                  |
-| `maxIterations`      | number             | `1`                           | Maximum iterations to run                                                                                               |
-| `hooks`              | object             | —                             | Lifecycle hooks (`onSandboxReady`)                                                                                      |
-| `worktree`           | WorktreeMode       | `{ mode: 'temp-branch' }`     | Worktree mode: `{ mode: 'none' }`, `{ mode: 'temp-branch' }`, or `{ mode: 'branch', branch }`                           |
-| `imageName`          | string             | `sandcastle:<repo-dir-name>`  | Docker image name for the sandbox                                                                                       |
-| `name`               | string             | —                             | Display name for the run, shown as a prefix in log output                                                               |
-| `promptArgs`         | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                                                                    |
-| `copyToSandbox`      | string[]           | —                             | Host-relative file paths to copy into the worktree before start (not supported with `mode: 'none'`)                     |
-| `logging`            | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                                                                        |
-| `completionSignal`   | string \| string[] | `<promise>COMPLETE</promise>` | String or array of strings the agent emits to stop the iteration loop early                                             |
-| `idleTimeoutSeconds` | number             | `600`                         | Idle timeout in seconds — resets on each agent output event                                                             |
+| Option               | Type               | Default                       | Description                                                                                                                                                               |
+| -------------------- | ------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent`              | AgentProvider      | —                             | **Required.** Agent provider (e.g. `claudeCode("claude-opus-4-6")`, `pi("claude-sonnet-4-6")`, `codex("gpt-5.4-mini")`, `codex("gpt-5.4-mini", { provider: "chatgpt" })`) |
+| `prompt`             | string             | —                             | Inline prompt (mutually exclusive with `promptFile`)                                                                                                                      |
+| `promptFile`         | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)                                                                                                                    |
+| `maxIterations`      | number             | `1`                           | Maximum iterations to run                                                                                                                                                 |
+| `hooks`              | object             | —                             | Lifecycle hooks (`onSandboxReady`)                                                                                                                                        |
+| `worktree`           | WorktreeMode       | `{ mode: 'temp-branch' }`     | Worktree mode: `{ mode: 'none' }`, `{ mode: 'temp-branch' }`, or `{ mode: 'branch', branch }`                                                                             |
+| `imageName`          | string             | `sandcastle:<repo-dir-name>`  | Docker image name for the sandbox                                                                                                                                         |
+| `name`               | string             | —                             | Display name for the run, shown as a prefix in log output                                                                                                                 |
+| `promptArgs`         | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                                                                                                                      |
+| `copyToSandbox`      | string[]           | —                             | Host-relative file paths to copy into the worktree before start (not supported with `mode: 'none'`)                                                                       |
+| `logging`            | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                                                                                                                          |
+| `completionSignal`   | string \| string[] | `<promise>COMPLETE</promise>` | String or array of strings the agent emits to stop the iteration loop early                                                                                               |
+| `idleTimeoutSeconds` | number             | `600`                         | Idle timeout in seconds — resets on each agent output event                                                                                                               |
 
 ### `RunResult`
 
@@ -489,6 +489,40 @@ await run({
   // ...
 });
 ```
+
+### Codex with ChatGPT subscription
+
+You can use the [Codex CLI](https://github.com/openai/codex) with a ChatGPT subscription instead of an OpenAI API key. This uses file-based credentials managed by `codex login`.
+
+#### Prerequisites
+
+1. Install the Codex CLI on your **host** machine: `npm install -g @openai/codex`
+2. Run `codex login` on the host and complete the authentication flow. This creates `~/.codex/auth.json`.
+
+#### Setup
+
+During `sandcastle init`, select **Codex** as the agent and then **ChatGPT subscription** as the auth type. This scaffolds a `main.ts` that uses the ChatGPT provider:
+
+```typescript
+import { run, codex } from "@ai-hero/sandcastle";
+
+await run({
+  agent: codex("gpt-5.4-mini", { provider: "chatgpt" }),
+  promptFile: ".sandcastle/prompt.md",
+});
+```
+
+Or configure it manually by passing `{ provider: "chatgpt" }` to the `codex()` factory.
+
+#### How it works
+
+When `provider: "chatgpt"` is set:
+
+- Sandcastle mounts `~/.codex/` from the host into the container at `/home/agent/.codex/`, so the Codex CLI inside the sandbox can use your credentials.
+- The CLI is invoked with `-c model_provider="chatgpt"` to route requests through your ChatGPT subscription.
+- No `OPENAI_API_KEY` environment variable is needed.
+
+If `~/.codex/auth.json` is missing on the host, Sandcastle fails immediately with an error asking you to run `codex login`.
 
 ## Development
 

@@ -551,6 +551,126 @@ describe("InitService scaffold", () => {
     expect(mainTs).not.toContain("claudeCode");
   });
 
+  // --- Codex ChatGPT provider scaffolding ---
+
+  describe("codex ChatGPT provider", () => {
+    it("scaffolds main.mts with { provider: 'chatgpt' } in codex factory call", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        agent: codexAgent,
+        model: "gpt-5.4-mini",
+        codexProvider: "chatgpt",
+      });
+
+      const mainTs = await readFile(
+        join(dir, ".sandcastle", "main.mts"),
+        "utf-8",
+      );
+      expect(mainTs).toContain(
+        'codex("gpt-5.4-mini", { provider: "chatgpt" })',
+      );
+      expect(mainTs).not.toContain("claudeCode");
+    });
+
+    it("generates .env.example without API key and with ChatGPT auth comment", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        agent: codexAgent,
+        model: "gpt-5.4-mini",
+        codexProvider: "chatgpt",
+      });
+
+      const envExample = await readFile(
+        join(dir, ".sandcastle", ".env.example"),
+        "utf-8",
+      );
+      expect(envExample).not.toContain("ANTHROPIC_API_KEY");
+      expect(envExample).not.toContain("OPENAI_API_KEY");
+      expect(envExample).toContain("codex login");
+      expect(envExample).toContain("GH_TOKEN=");
+    });
+
+    it("works with non-blank templates", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        agent: codexAgent,
+        model: "gpt-5.4-mini",
+        codexProvider: "chatgpt",
+        templateName: "simple-loop",
+      });
+
+      const mainTs = await readFile(
+        join(dir, ".sandcastle", "main.mts"),
+        "utf-8",
+      );
+      expect(mainTs).toContain(
+        'codex("gpt-5.4-mini", { provider: "chatgpt" })',
+      );
+
+      const envExample = await readFile(
+        join(dir, ".sandcastle", ".env.example"),
+        "utf-8",
+      );
+      expect(envExample).not.toContain("ANTHROPIC_API_KEY");
+      expect(envExample).toContain("codex login");
+    });
+
+    it("works with main.ts (ESM module project)", async () => {
+      const dir = await makeDir();
+      await writeFile(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "test", type: "module" }),
+      );
+      await runScaffold(dir, {
+        agent: codexAgent,
+        model: "gpt-5.4-mini",
+        codexProvider: "chatgpt",
+      });
+
+      const mainTs = await readFile(
+        join(dir, ".sandcastle", "main.ts"),
+        "utf-8",
+      );
+      expect(mainTs).toContain(
+        'codex("gpt-5.4-mini", { provider: "chatgpt" })',
+      );
+      expect(mainTs).not.toContain("claudeCode");
+    });
+  });
+
+  describe("codex API key (no codexProvider)", () => {
+    it("scaffolds main.mts with plain codex() call (no provider option)", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        agent: codexAgent,
+        model: "gpt-5.4-mini",
+      });
+
+      const mainTs = await readFile(
+        join(dir, ".sandcastle", "main.mts"),
+        "utf-8",
+      );
+      expect(mainTs).toContain('codex("gpt-5.4-mini")');
+      expect(mainTs).not.toContain("provider");
+      expect(mainTs).not.toContain("chatgpt");
+    });
+
+    it("generates standard .env.example with ANTHROPIC_API_KEY", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        agent: codexAgent,
+        model: "gpt-5.4-mini",
+      });
+
+      const envExample = await readFile(
+        join(dir, ".sandcastle", ".env.example"),
+        "utf-8",
+      );
+      expect(envExample).toContain("ANTHROPIC_API_KEY=");
+      expect(envExample).toContain("GH_TOKEN=");
+    });
+  });
+
   it("unknown template name throws a clear error", async () => {
     const dir = await makeDir();
     await expect(

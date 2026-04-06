@@ -208,6 +208,12 @@ export function getNextStepsLines(
   }
 }
 
+const CHATGPT_ENV_EXAMPLE = `# ChatGPT subscription — authentication is handled via \`codex login\`.
+# No API key needed. Run \`codex login\` on the host before starting Sandcastle.
+# GitHub personal access token
+GH_TOKEN=
+`;
+
 // ---------------------------------------------------------------------------
 // Scaffolding helpers
 // ---------------------------------------------------------------------------
@@ -280,6 +286,7 @@ const rewriteMainTs = (
   agent: AgentEntry,
   model: string,
   mainFilename: string,
+  options?: { codexProvider?: "chatgpt" },
 ): Effect.Effect<void, Error, FileSystem.FileSystem> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -314,6 +321,14 @@ const rewriteMainTs = (
       `${agent.factoryImport}("${model}")`,
     );
 
+    // When ChatGPT provider is selected, add { provider: "chatgpt" } to codex calls
+    if (options?.codexProvider === "chatgpt") {
+      content = content.replace(
+        new RegExp(`${agent.factoryImport}\\("${model}"\\)`, "g"),
+        `${agent.factoryImport}("${model}", { provider: "chatgpt" })`,
+      );
+    }
+
     yield* fs
       .writeFileString(mainTsPath, content)
       .pipe(Effect.mapError((e) => new Error(e.message)));
@@ -327,6 +342,7 @@ export interface ScaffoldOptions {
   agent: AgentEntry;
   model: string;
   templateName?: string;
+  codexProvider?: "chatgpt";
 }
 
 export interface ScaffoldResult {
@@ -363,7 +379,7 @@ export const scaffold = (
   options: ScaffoldOptions,
 ): Effect.Effect<ScaffoldResult, Error, FileSystem.FileSystem> =>
   Effect.gen(function* () {
-    const { agent, model, templateName = "blank" } = options;
+    const { agent, model, templateName = "blank", codexProvider } = options;
     const fs = yield* FileSystem.FileSystem;
     const configDir = join(repoDir, ".sandcastle");
 
@@ -403,7 +419,17 @@ export const scaffold = (
     );
 
     // Rewrite main file with the selected agent factory and model
-    yield* rewriteMainTs(configDir, agent, model, mainFilename);
+    yield* rewriteMainTs(configDir, agent, model, mainFilename, {
+      codexProvider,
+    });
+
+    // When ChatGPT provider is selected, replace .env.example with
+    // one that omits the API key and explains file-based auth.
+    if (codexProvider === "chatgpt") {
+      yield* fs
+        .writeFileString(join(configDir, ".env.example"), CHATGPT_ENV_EXAMPLE)
+        .pipe(Effect.mapError((e) => new Error(e.message)));
+    }
 
     return { mainFilename };
   });

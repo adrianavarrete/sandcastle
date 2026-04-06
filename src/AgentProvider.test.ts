@@ -434,7 +434,7 @@ describe("codex factory with { provider: 'chatgpt' }", () => {
   it("populates hostMounts with ~/.codex mount", () => {
     const provider = codex("gpt-5.4-mini", { provider: "chatgpt" });
     expect(provider.hostMounts).toEqual([
-      `${homedir()}/.codex:/home/agent/.codex:ro`,
+      `${homedir()}/.codex:/home/agent/.codex`,
     ]);
   });
 
