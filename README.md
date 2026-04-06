@@ -41,7 +41,7 @@ npx sandcastle init
 cp .sandcastle/.env.example .sandcastle/.env
 ```
 
-4. Run the `.sandcastle/main.ts` file with `npx tsx`
+4. Run the `.sandcastle/main.ts` (or `main.mts`) file with `npx tsx`
 
 ```bash
 npx tsx .sandcastle/main.ts
@@ -360,7 +360,7 @@ Tell the agent to output your chosen string(s) in the prompt, and the orchestrat
 
 ### Templates
 
-`sandcastle init` prompts you to choose a template, which scaffolds a ready-to-use prompt and `main.ts` suited to a specific workflow. Four templates are available:
+`sandcastle init` prompts you to choose a template, which scaffolds a ready-to-use prompt and `main.mts` suited to a specific workflow. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Four templates are available:
 
 | Template              | Description                                                             |
 | --------------------- | ----------------------------------------------------------------------- |

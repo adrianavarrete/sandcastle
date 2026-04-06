@@ -35,6 +35,7 @@ import {
   SandboxFactory,
   SANDBOX_WORKSPACE_DIR,
   makeDockerSandboxLayer,
+  resolveGitVolumeMounts,
 } from "./SandboxFactory.js";
 import * as WorktreeManager from "./WorktreeManager.js";
 import { copyToSandbox } from "./CopyToSandbox.js";
@@ -158,10 +159,15 @@ export const createSandbox = async (
       resolveEnv(hostRepoDir).pipe(Effect.provide(NodeContext.layer)),
     );
 
-    const gitDir = join(hostRepoDir, ".git");
+    const gitPath = join(hostRepoDir, ".git");
+    const gitMounts = await Effect.runPromise(
+      resolveGitVolumeMounts(gitPath).pipe(
+        Effect.provide(NodeFileSystem.layer),
+      ),
+    );
     const volumeMounts = [
       `${worktreePath}:${SANDBOX_WORKSPACE_DIR}`,
-      `${gitDir}:${gitDir}`,
+      ...gitMounts,
     ];
 
     const hostUid = process.getuid?.() ?? 1000;

@@ -1,6 +1,9 @@
 import { Effect, Exit, Layer, Ref } from "effect";
 import { NodeFileSystem } from "@effect/platform-node";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { AgentError, TimeoutError, WorktreeError } from "./errors.js";
 import { Display, SilentDisplay, type DisplayEntry } from "./Display.js";
 
@@ -52,8 +55,16 @@ beforeEach(() => {
 });
 
 describe("WorktreeDockerSandboxFactory", () => {
-  const hostRepoDir = "/host/repo";
-  const worktreePath = "/host/repo/.sandcastle/worktrees/sandcastle-123";
+  let hostRepoDir: string;
+  const worktreePath = "/tmp/sandcastle-worktrees/sandcastle-123";
+  const tempDirs: string[] = [];
+
+  const makeTempRepo = async () => {
+    const dir = await mkdtemp(join(tmpdir(), "sandcastle-test-"));
+    tempDirs.push(dir);
+    await mkdir(join(dir, ".git"));
+    return dir;
+  };
 
   const makeLayer = (
     displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]),
@@ -71,7 +82,8 @@ describe("WorktreeDockerSandboxFactory", () => {
       ),
     );
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    hostRepoDir = await makeTempRepo();
     mockCreate.mockReturnValue(
       Effect.succeed({
         path: worktreePath,
@@ -83,6 +95,13 @@ describe("WorktreeDockerSandboxFactory", () => {
     // Default: clean worktree (no uncommitted changes)
     mockHasUncommittedChanges.mockReturnValue(Effect.succeed(false));
     mockDockerSuccess();
+  });
+
+  afterEach(async () => {
+    await Promise.all(
+      tempDirs.map((d) => rm(d, { recursive: true, force: true })),
+    );
+    tempDirs.length = 0;
   });
 
   it("passes branch from config to WorktreeManager.create when branch is specified", async () => {
@@ -156,7 +175,8 @@ describe("WorktreeDockerSandboxFactory", () => {
     const runArgs = capturedArgs().find((args) => args[0] === "run");
     expect(runArgs).toBeDefined();
     expect(runArgs).toContain(`${worktreePath}:${SANDBOX_WORKSPACE_DIR}`);
-    expect(runArgs).toContain(`${hostRepoDir}/.git:${hostRepoDir}/.git`);
+    const gitMount = `${hostRepoDir}/.git:${hostRepoDir}/.git`;
+    expect(runArgs).toContain(gitMount);
   });
 
   it("sets working directory to SANDBOX_WORKSPACE_DIR", async () => {
@@ -528,7 +548,8 @@ describe("WorktreeDockerSandboxFactory", () => {
       const runArgs = capturedArgs().find((args) => args[0] === "run");
       expect(runArgs).toBeDefined();
       expect(runArgs).toContain(`${hostRepoDir}:${SANDBOX_WORKSPACE_DIR}`);
-      expect(runArgs).toContain(`${hostRepoDir}/.git:${hostRepoDir}/.git`);
+      const gitMount = `${hostRepoDir}/.git:${hostRepoDir}/.git`;
+      expect(runArgs).toContain(gitMount);
     });
 
     it("returns undefined preservedWorktreePath", async () => {
@@ -556,6 +577,53 @@ describe("WorktreeDockerSandboxFactory", () => {
       );
 
       expect(receivedInfo?.hostWorktreePath).toBeUndefined();
+    });
+
+    it("mounts only one git volume when .git is a directory (normal repo)", async () => {
+      // hostRepoDir already has .git as a directory from makeTempRepo()
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const factory = yield* SandboxFactory;
+          yield* factory.withSandbox(() => Effect.void);
+        }).pipe(Effect.provide(makeNoneLayer())),
+      );
+
+      const runArgs = capturedArgs().find((args) => args[0] === "run");
+      expect(runArgs).toBeDefined();
+      // Should have exactly one git-related -v mount (the .git directory)
+      const gitMounts = runArgs!.filter((arg) => arg.includes(".git:"));
+      expect(gitMounts).toHaveLength(1);
+      expect(gitMounts[0]).toBe(`${hostRepoDir}/.git:${hostRepoDir}/.git`);
+    });
+
+    it("mounts both .git file and parent .git dir when .git is a worktree file", async () => {
+      // Create a parent repo with .git/worktrees/<name> structure
+      const parentRepoDir = await makeTempRepo();
+      const parentGitDir = join(parentRepoDir, ".git");
+      await mkdir(join(parentGitDir, "worktrees", "my-worktree"), {
+        recursive: true,
+      });
+
+      // Replace .git directory with a worktree file pointing to the parent
+      await rm(join(hostRepoDir, ".git"), { recursive: true });
+      await writeFile(
+        join(hostRepoDir, ".git"),
+        `gitdir: ${parentGitDir}/worktrees/my-worktree\n`,
+      );
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const factory = yield* SandboxFactory;
+          yield* factory.withSandbox(() => Effect.void);
+        }).pipe(Effect.provide(makeNoneLayer())),
+      );
+
+      const runArgs = capturedArgs().find((args) => args[0] === "run");
+      expect(runArgs).toBeDefined();
+      const gitMounts = runArgs!.filter((arg) => arg.includes(".git"));
+      // Should mount both the .git file and the parent .git directory
+      expect(gitMounts).toContain(`${hostRepoDir}/.git:${hostRepoDir}/.git`);
+      expect(gitMounts).toContain(`${parentGitDir}:${parentGitDir}`);
     });
   });
 

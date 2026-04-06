@@ -3,7 +3,8 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { randomUUID } from "node:crypto";
 import { execFile, execFileSync, spawn } from "node:child_process";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import type { PlatformError } from "@effect/platform/Error";
 import { createInterface } from "node:readline";
 import {
   startContainer,
@@ -15,8 +16,8 @@ import {
   CopyError,
   ExecError,
   TimeoutError,
+  WorktreeError,
   type DockerError,
-  type WorktreeError,
 } from "./errors.js";
 import * as WorktreeManager from "./WorktreeManager.js";
 import { copyToSandbox } from "./CopyToSandbox.js";
@@ -344,13 +345,32 @@ const startSandboxContainer = (
 };
 
 /**
- * Worktree sandbox mode: creates a git worktree and bind-mounts it into the
- * container at SANDBOX_WORKSPACE_DIR. The host's .git directory is also bind-mounted at
- * its original host path so the worktree's .git file pointer resolves correctly.
- *
- * In 'none' mode: bind-mounts the host's working directory directly into the container.
- * No worktree is created, pruned, or cleaned up.
+ * Resolves the git-related volume mounts needed for the Docker container.
+ * Handles both normal repos (where .git is a directory) and worktrees
+ * (where .git is a file pointing to the parent repo's .git/worktrees/<name>).
  */
+export const resolveGitVolumeMounts = (
+  gitPath: string,
+): Effect.Effect<string[], PlatformError, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const stat = yield* fs.stat(gitPath);
+    if (stat.type === "Directory") {
+      return [`${gitPath}:${gitPath}`];
+    }
+    // Worktree: .git is a file with "gitdir: <path>"
+    const content = (yield* fs.readFileString(gitPath)).trim();
+    const match = content.match(/^gitdir:\s*(.+)$/);
+    if (!match) {
+      // Unrecognized format — fall back to mounting the file as-is
+      return [`${gitPath}:${gitPath}`];
+    }
+    const gitdirPath = match[1]!;
+    // gitdirPath is like /path/to/repo/.git/worktrees/<name>
+    // Mount both the .git file and the parent .git directory
+    const parentGitDir = resolve(gitdirPath, "..", "..");
+    return [`${gitPath}:${gitPath}`, `${parentGitDir}:${parentGitDir}`];
+  });
 export const WorktreeDockerSandboxFactory = {
   layer: Layer.effect(
     SandboxFactory,
@@ -380,38 +400,49 @@ export const WorktreeDockerSandboxFactory = {
 
           if (isNoneMode) {
             // None mode: bind-mount host directory directly, no worktree
-            const gitDir = join(hostRepoDir, ".git");
-            const volumeMounts = [
-              `${hostRepoDir}:${SANDBOX_WORKSPACE_DIR}`,
-              `${gitDir}:${gitDir}`,
-            ];
-            return Effect.acquireUseRelease(
-              startSandboxContainer(
-                containerName,
-                imageName,
-                env,
-                volumeMounts,
+            const gitPath = join(hostRepoDir, ".git");
+            return resolveGitVolumeMounts(gitPath).pipe(
+              Effect.provideService(FileSystem.FileSystem, fileSystem),
+              Effect.mapError(
+                (e) =>
+                  new WorktreeError({
+                    message: `Failed to resolve git mounts: ${e}`,
+                  }) as E | DockerError | WorktreeError,
               ),
-              // Use
-              () =>
-                makeEffect({}).pipe(
-                  Effect.provide(makeDockerSandboxLayer(containerName)),
-                ) as Effect.Effect<A, E | DockerError, Exclude<R, Sandbox>>,
-              // Release: remove container only (no worktree to clean up)
-              ({ cleanupContainerOnly, onSignal }) =>
-                Effect.sync(() => {
-                  process.removeListener("exit", cleanupContainerOnly);
-                  process.removeListener("SIGINT", onSignal);
-                  process.removeListener("SIGTERM", onSignal);
-                }).pipe(
-                  Effect.andThen(removeContainer(containerName)),
-                  Effect.orDie,
-                ),
-            ).pipe(
-              Effect.map((value) => ({
-                value,
-                preservedWorktreePath: undefined,
-              })),
+              Effect.flatMap((gitMounts) => {
+                const volumeMounts = [
+                  `${hostRepoDir}:${SANDBOX_WORKSPACE_DIR}`,
+                  ...gitMounts,
+                ];
+                return Effect.acquireUseRelease(
+                  startSandboxContainer(
+                    containerName,
+                    imageName,
+                    env,
+                    volumeMounts,
+                  ),
+                  // Use
+                  () =>
+                    makeEffect({}).pipe(
+                      Effect.provide(makeDockerSandboxLayer(containerName)),
+                    ) as Effect.Effect<A, E | DockerError, Exclude<R, Sandbox>>,
+                  // Release: remove container only (no worktree to clean up)
+                  ({ cleanupContainerOnly, onSignal }) =>
+                    Effect.sync(() => {
+                      process.removeListener("exit", cleanupContainerOnly);
+                      process.removeListener("SIGINT", onSignal);
+                      process.removeListener("SIGTERM", onSignal);
+                    }).pipe(
+                      Effect.andThen(removeContainer(containerName)),
+                      Effect.orDie,
+                    ),
+                ).pipe(
+                  Effect.map((value) => ({
+                    value,
+                    preservedWorktreePath: undefined,
+                  })),
+                );
+              }),
             );
           }
 
@@ -458,40 +489,51 @@ export const WorktreeDockerSandboxFactory = {
               )
               .pipe(
                 Effect.flatMap((worktreeInfo) => {
-                  const gitDir = join(hostRepoDir, ".git");
-                  const volumeMounts = [
-                    `${worktreeInfo.path}:${SANDBOX_WORKSPACE_DIR}`,
-                    `${gitDir}:${gitDir}`,
-                  ];
-
-                  return startSandboxContainer(
-                    containerName,
-                    imageName,
-                    env,
-                    volumeMounts,
-                  ).pipe(
-                    Effect.tap(({ cleanupContainerOnly, onSignal }) =>
-                      Effect.sync(() => {
-                        // Override the default signal handler to also preserve the worktree
-                        process.removeListener("SIGINT", onSignal);
-                        process.removeListener("SIGTERM", onSignal);
-                        const onSignalWithWorktree = () => {
-                          cleanupContainerOnly();
-                          printWorktreePreservedMessage(
-                            worktreeInfo.path,
-                            `Worktree preserved at ${worktreeInfo.path}`,
-                          );
-                          process.exit(1);
-                        };
-                        process.on("SIGINT", onSignalWithWorktree);
-                        process.on("SIGTERM", onSignalWithWorktree);
-                      }),
+                  const gitPath = join(hostRepoDir, ".git");
+                  return resolveGitVolumeMounts(gitPath).pipe(
+                    Effect.provideService(FileSystem.FileSystem, fileSystem),
+                    Effect.mapError(
+                      (e) =>
+                        new WorktreeError({
+                          message: `Failed to resolve git mounts: ${e}`,
+                        }),
                     ),
-                    Effect.map(({ cleanupContainerOnly, onSignal }) => ({
-                      worktreeInfo,
-                      cleanupContainerOnly,
-                      onSignal,
-                    })),
+                    Effect.flatMap((gitMounts) => {
+                      const volumeMounts = [
+                        `${worktreeInfo.path}:${SANDBOX_WORKSPACE_DIR}`,
+                        ...gitMounts,
+                      ];
+
+                      return startSandboxContainer(
+                        containerName,
+                        imageName,
+                        env,
+                        volumeMounts,
+                      ).pipe(
+                        Effect.tap(({ cleanupContainerOnly, onSignal }) =>
+                          Effect.sync(() => {
+                            // Override the default signal handler to also preserve the worktree
+                            process.removeListener("SIGINT", onSignal);
+                            process.removeListener("SIGTERM", onSignal);
+                            const onSignalWithWorktree = () => {
+                              cleanupContainerOnly();
+                              printWorktreePreservedMessage(
+                                worktreeInfo.path,
+                                `Worktree preserved at ${worktreeInfo.path}`,
+                              );
+                              process.exit(1);
+                            };
+                            process.on("SIGINT", onSignalWithWorktree);
+                            process.on("SIGTERM", onSignalWithWorktree);
+                          }),
+                        ),
+                        Effect.map(({ cleanupContainerOnly, onSignal }) => ({
+                          worktreeInfo,
+                          cleanupContainerOnly,
+                          onSignal,
+                        })),
+                      );
+                    }),
                   );
                 }),
               ),

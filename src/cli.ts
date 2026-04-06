@@ -205,7 +205,7 @@ const initCommand = Command.make(
         }
       }
 
-      yield* d.spinner(
+      const scaffoldResult = yield* d.spinner(
         "Scaffolding .sandcastle/ config directory...",
         scaffold(cwd, {
           agent: selectedAgent,
@@ -244,7 +244,10 @@ const initCommand = Command.make(
       }
 
       // Show template-specific next steps
-      const nextSteps = getNextStepsLines(selectedTemplate);
+      const nextSteps = getNextStepsLines(
+        selectedTemplate,
+        scaffoldResult.mainFilename,
+      );
       for (const [i, line] of nextSteps.entries()) {
         yield* d.text(i === 0 ? line : styleText("dim", line));
       }

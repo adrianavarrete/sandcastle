@@ -1,5 +1,17 @@
 # @ai-hero/sandcastle
 
+## 0.2.3
+
+### Patch Changes
+
+- 01846be: Fix Docker sandbox failing when run from a git worktree. When `.git` is a worktree file (not a directory), also mount the parent repository's `.git` directory so git can resolve the repository inside the container.
+
+## 0.2.2
+
+### Patch Changes
+
+- 008e539: Use `.mts` extension for scaffolded main file to fix ESM resolution in projects without `"type": "module"` in package.json. When the project's package.json has `"type": "module"`, the file is scaffolded as `main.ts` instead.
+
 ## 0.2.1
 
 ### Patch Changes
