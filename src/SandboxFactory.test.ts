@@ -28,6 +28,7 @@ import {
   WorktreeSandboxConfig,
   WorktreeDockerSandboxFactory,
   SANDBOX_WORKSPACE_DIR,
+  validateHostMounts,
 } from "./SandboxFactory.js";
 
 const mockExecFile = vi.mocked(execFile);
@@ -639,5 +640,118 @@ describe("WorktreeDockerSandboxFactory", () => {
 
     expect(result.preservedWorktreePath).toBeUndefined();
     expect(result.value).toBe("done");
+  });
+
+  describe("hostMounts propagation", () => {
+    const makeLayerWithHostMounts = (
+      hostMounts: string[],
+      worktree?: { mode: "none" } | { mode: "branch"; branch: string },
+    ) =>
+      Layer.provide(
+        WorktreeDockerSandboxFactory.layer,
+        Layer.mergeAll(
+          Layer.succeed(WorktreeSandboxConfig, {
+            imageName: "test-image",
+            env: {},
+            hostRepoDir,
+            worktree,
+            hostMounts,
+          }),
+          NodeFileSystem.layer,
+          SilentDisplay.layer(Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([])),
+        ),
+      );
+
+    it("includes hostMounts in volume flags in worktree mode", async () => {
+      const layer = makeLayerWithHostMounts([
+        "/home/user/.codex:/home/agent/.codex:ro",
+      ]);
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const factory = yield* SandboxFactory;
+          yield* factory.withSandbox(() => Effect.void);
+        }).pipe(Effect.provide(layer)),
+      );
+
+      const runArgs = capturedArgs().find((args) => args[0] === "run");
+      expect(runArgs).toContain("/home/user/.codex:/home/agent/.codex:ro");
+    });
+
+    it("includes hostMounts in volume flags in none mode", async () => {
+      const layer = makeLayerWithHostMounts(
+        ["/home/user/.codex:/home/agent/.codex:ro"],
+        { mode: "none" },
+      );
+
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const factory = yield* SandboxFactory;
+          yield* factory.withSandbox(() => Effect.void);
+        }).pipe(Effect.provide(layer)),
+      );
+
+      const runArgs = capturedArgs().find((args) => args[0] === "run");
+      expect(runArgs).toContain("/home/user/.codex:/home/agent/.codex:ro");
+    });
+
+    it("does not add extra mounts when hostMounts is undefined", async () => {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          const factory = yield* SandboxFactory;
+          yield* factory.withSandbox(() => Effect.void);
+        }).pipe(Effect.provide(makeLayer())),
+      );
+
+      const runArgs = capturedArgs().find((args) => args[0] === "run");
+      // Should only have workspace + .git mounts, no codex mount
+      const volumeArgs = runArgs!.filter((arg) => arg.includes(":/"));
+      expect(volumeArgs.every((a) => !a.includes(".codex"))).toBe(true);
+    });
+  });
+});
+
+describe("validateHostMounts", () => {
+  it("does nothing when mounts is undefined", () => {
+    expect(() => validateHostMounts(undefined)).not.toThrow();
+  });
+
+  it("does nothing when mounts is empty", () => {
+    expect(() => validateHostMounts([])).not.toThrow();
+  });
+
+  it("does nothing when mounts do not reference ~/.codex", () => {
+    expect(() =>
+      validateHostMounts(["/some/path:/container/path"], "/fake/home"),
+    ).not.toThrow();
+  });
+
+  it("throws with 'codex login' message when ~/.codex is mounted but auth.json is missing", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "codex-validate-test-"));
+    const fakeCodexDir = join(tempDir, ".codex");
+    await mkdir(fakeCodexDir, { recursive: true });
+
+    try {
+      expect(() =>
+        validateHostMounts([`${fakeCodexDir}:/home/agent/.codex:ro`], tempDir),
+      ).toThrow(/codex login/);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("passes when ~/.codex/auth.json exists", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "codex-validate-test-"));
+    const fakeCodexDir = join(tempDir, ".codex");
+    await mkdir(fakeCodexDir, { recursive: true });
+    await writeFile(join(fakeCodexDir, "auth.json"), "{}");
+
+    try {
+      expect(() =>
+        validateHostMounts([`${fakeCodexDir}:/home/agent/.codex:ro`], tempDir),
+      ).not.toThrow();
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 });

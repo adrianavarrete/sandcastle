@@ -3,7 +3,9 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { randomUUID } from "node:crypto";
 import { execFile, execFileSync, spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
 import type { PlatformError } from "@effect/platform/Error";
 import { createInterface } from "node:readline";
 import {
@@ -284,6 +286,8 @@ export class WorktreeSandboxConfig extends Context.Tag("WorktreeSandboxConfig")<
     readonly copyToSandbox?: string[];
     /** When specified, the run name is included in the auto-generated branch and worktree names. */
     readonly name?: string;
+    /** Additional host paths to bind-mount into the container (Docker volume mount syntax). */
+    readonly hostMounts?: readonly string[];
   }
 >() {}
 
@@ -371,6 +375,33 @@ export const resolveGitVolumeMounts = (
     const parentGitDir = resolve(gitdirPath, "..", "..");
     return [`${gitPath}:${gitPath}`, `${parentGitDir}:${parentGitDir}`];
   });
+
+/**
+ * Validate host mounts before starting a container.
+ * If any mount references the `~/.codex` directory, checks that
+ * `~/.codex/auth.json` exists on the host. Throws if it does not.
+ */
+export const validateHostMounts = (
+  mounts: readonly string[] | undefined,
+  homeDir?: string,
+): void => {
+  if (!mounts) return;
+  const codexDir = join(homeDir ?? homedir(), ".codex");
+  const needsCodexAuth = mounts.some((m) => {
+    const hostPath = m.split(":")[0]!;
+    return hostPath === codexDir || hostPath.startsWith(codexDir + "/");
+  });
+  if (needsCodexAuth) {
+    const authPath = join(codexDir, "auth.json");
+    if (!existsSync(authPath)) {
+      throw new Error(
+        `Codex auth file not found at ${authPath}. ` +
+          `Please run \`codex login\` to authenticate before using the ChatGPT provider.`,
+      );
+    }
+  }
+};
+
 export const WorktreeDockerSandboxFactory = {
   layer: Layer.effect(
     SandboxFactory,
@@ -382,6 +413,7 @@ export const WorktreeDockerSandboxFactory = {
         worktree: worktreeMode,
         copyToSandbox: copyPaths,
         name,
+        hostMounts,
       } = yield* WorktreeSandboxConfig;
       const isNoneMode = worktreeMode?.mode === "none";
       const branch =
@@ -397,6 +429,7 @@ export const WorktreeDockerSandboxFactory = {
           Exclude<R, Sandbox>
         > => {
           const containerName = `sandcastle-${randomUUID()}`;
+          validateHostMounts(hostMounts);
 
           if (isNoneMode) {
             // None mode: bind-mount host directory directly, no worktree
@@ -413,6 +446,7 @@ export const WorktreeDockerSandboxFactory = {
                 const volumeMounts = [
                   `${hostRepoDir}:${SANDBOX_WORKSPACE_DIR}`,
                   ...gitMounts,
+                  ...(hostMounts ?? []),
                 ];
                 return Effect.acquireUseRelease(
                   startSandboxContainer(
@@ -502,6 +536,7 @@ export const WorktreeDockerSandboxFactory = {
                       const volumeMounts = [
                         `${worktreeInfo.path}:${SANDBOX_WORKSPACE_DIR}`,
                         ...gitMounts,
+                        ...(hostMounts ?? []),
                       ];
 
                       return startSandboxContainer(

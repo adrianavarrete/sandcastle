@@ -36,6 +36,7 @@ import {
   SANDBOX_WORKSPACE_DIR,
   makeDockerSandboxLayer,
   resolveGitVolumeMounts,
+  validateHostMounts,
 } from "./SandboxFactory.js";
 import * as WorktreeManager from "./WorktreeManager.js";
 import { copyToSandbox } from "./CopyToSandbox.js";
@@ -51,6 +52,8 @@ export interface CreateSandboxOptions {
   };
   /** Paths relative to the host repo root to copy into the worktree at creation time. */
   readonly copyToSandbox?: string[];
+  /** Additional host paths to bind-mount into the container (Docker volume mount syntax). */
+  readonly hostMounts?: readonly string[];
   /** @internal Test-only overrides to bypass Docker. */
   readonly _test?: {
     readonly hostRepoDir?: string;
@@ -151,6 +154,7 @@ export const createSandbox = async (
     sandboxLayer = options._test!.buildSandboxLayer!(worktreePath);
     sandboxRepoDir = worktreePath;
   } else {
+    validateHostMounts(options.hostMounts);
     containerName = `sandcastle-${randomUUID()}`;
     const resolvedImageName =
       options.imageName ?? defaultImageName(hostRepoDir);
@@ -168,6 +172,7 @@ export const createSandbox = async (
     const volumeMounts = [
       `${worktreePath}:${SANDBOX_WORKSPACE_DIR}`,
       ...gitMounts,
+      ...(options.hostMounts ?? []),
     ];
 
     const hostUid = process.getuid?.() ?? 1000;
